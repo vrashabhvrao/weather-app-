@@ -13,8 +13,13 @@
   body{
     min-height:100vh; font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;
     color:var(--ink); padding:24px 16px 48px; position:relative;
-    background:#1b2433 url("https://commons.wikimedia.org/wiki/Special:FilePath/MarineDrive_WeekendNight.jpg?width=1600") center/cover fixed no-repeat;
+    background:#1b2433;
   }
+  #bg{
+    position:fixed;inset:0;z-index:-2;background:center/cover no-repeat;
+    opacity:0;transition:opacity 1s;
+  }
+  #bg.on{opacity:1}
   /* weather-coloured tint over the photo so text stays readable */
   body::before{
     content:"";position:fixed;inset:0;z-index:-1;opacity:.62;
@@ -65,6 +70,7 @@
 </style>
 </head>
 <body>
+<div id="bg"></div>
 <main>
   <form id="f">
     <input id="q" placeholder="Search city (e.g. Mangaluru)" aria-label="City" autocomplete="off">
@@ -90,12 +96,66 @@
     <h2>7-day forecast</h2>
     <div class="days" id="days"></div>
   </section>
-  <p class="credit">Photo: Marine Drive, Mumbai by Indoresearch,
-    <a href="https://commons.wikimedia.org/wiki/File:MarineDrive_WeekendNight.jpg" target="_blank" rel="noopener">Wikimedia Commons</a>
-    (CC BY-SA 3.0)</p>
+  <p class="credit" id="credit"></p>
 </main>
 
 <script>
+// ===== PHOTO SETTINGS =====================================================
+// Free API key needed (takes 1 minute):
+//   Pexels  -> https://www.pexels.com/api/       (provider: "pexels")
+//   Pixabay -> https://pixabay.com/api/docs/     (provider: "pixabay")
+const PHOTO_PROVIDER = "pexels";
+const PHOTO_API_KEY  = "";   // <-- paste your key here
+// Used when there is no key, or no photo is found for a city
+const FALLBACK = {
+  url: "https://commons.wikimedia.org/wiki/Special:FilePath/MarineDrive_WeekendNight.jpg?width=1600",
+  credit: 'Photo: Marine Drive, Mumbai by Indoresearch, <a href="https://commons.wikimedia.org/wiki/File:MarineDrive_WeekendNight.jpg" target="_blank" rel="noopener">Wikimedia Commons</a> (CC BY-SA 3.0)'
+};
+// ==========================================================================
+
+async function fetchPhoto(city){
+  const cacheKey = "photo:" + PHOTO_PROVIDER + ":" + city.toLowerCase();
+  try{ const c = JSON.parse(localStorage.getItem(cacheKey)); if(c) return c; }catch(e){}
+  if(!PHOTO_API_KEY) return FALLBACK;
+  const q = encodeURIComponent(city + " city skyline");
+  let photo = null;
+  if(PHOTO_PROVIDER === "pexels"){
+    const r = await fetch("https://api.pexels.com/v1/search?orientation=landscape&per_page=5&query=" + q,
+      {headers:{Authorization:PHOTO_API_KEY}});
+    const d = await r.json(), p = d.photos && d.photos[0];
+    if(p) photo = {url:p.src.large2x,
+      credit:`Photo by <a href="${p.photographer_url}" target="_blank" rel="noopener">${p.photographer}</a> on <a href="${p.url}" target="_blank" rel="noopener">Pexels</a>`};
+  }else{
+    const r = await fetch("https://pixabay.com/api/?image_type=photo&orientation=horizontal&per_page=5&q=" + q + "&key=" + PHOTO_API_KEY);
+    const d = await r.json(), p = d.hits && d.hits[0];
+    if(p) photo = {url:p.largeImageURL,
+      credit:`Photo by ${p.user} on <a href="${p.pageURL}" target="_blank" rel="noopener">Pixabay</a>`};
+  }
+  if(!photo) return FALLBACK;
+  try{ localStorage.setItem(cacheKey, JSON.stringify(photo)); }catch(e){}
+  return photo;
+}
+
+async function setCityPhoto(city){
+  let photo;
+  try{ photo = await fetchPhoto(city); }catch(e){ photo = FALLBACK; }
+  const img = new Image();
+  img.onload = () => {
+    const bg = $("bg");
+    bg.classList.remove("on");
+    setTimeout(() => {
+      bg.style.backgroundImage = 'url("' + photo.url + '")';
+      bg.classList.add("on");
+      $("credit").innerHTML = photo.credit;
+    }, 300);
+  };
+  img.onerror = () => { if(photo !== FALLBACK) { $("credit").innerHTML=""; setCityPhoto.fallback(); } };
+  img.src = photo.url;
+}
+setCityPhoto.fallback = () => {
+  $("bg").style.backgroundImage = 'url("' + FALLBACK.url + '")';
+  $("bg").classList.add("on"); $("credit").innerHTML = FALLBACK.credit;
+};
 // Weather codes from Open-Meteo: [emoji, description, sky gradient]
 const WX = {
   0:["☀️","Clear sky",["#2193b0","#6dd5ed"]],
@@ -148,6 +208,7 @@ async function load(lat, lon, label){
       "&timezone=auto&forecast_days=7";
     const d = await getJSON(url);
     render(d, label);
+    setCityPhoto(label.split(",")[0]);
     localStorage.setItem("lastPlace", JSON.stringify({lat,lon,label}));
     msg("");
   }catch(e){ msg(e.message || "Could not load weather."); }
@@ -194,7 +255,16 @@ $("loc").addEventListener("click", () => {
   if(!navigator.geolocation) return msg("Your browser doesn't support location.");
   msg("Finding you…");
   navigator.geolocation.getCurrentPosition(
-    p => load(p.coords.latitude, p.coords.longitude, "Your location"),
+    async p => {
+      const {latitude:la, longitude:lo} = p.coords;
+      let label = "Your location";
+      try{
+        const g = await getJSON("https://api.bigdatacloud.net/data/reverse-geocode-client?localityLanguage=en&latitude="+la+"&longitude="+lo);
+        const name = g.city || g.locality;
+        if(name) label = [name, g.principalSubdivision, g.countryName].filter(Boolean).join(", ");
+      }catch(e){}
+      load(la, lo, label);
+    },
     () => msg("Location blocked. Allow it in your browser, or search a city.")
   );
 });
