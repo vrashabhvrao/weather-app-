@@ -100,36 +100,46 @@
 </main>
 
 <script>
-// ===== PHOTO SETTINGS =====================================================
-// Free API key needed (takes 1 minute):
-//   Pexels  -> https://www.pexels.com/api/       (provider: "pexels")
-//   Pixabay -> https://pixabay.com/api/docs/     (provider: "pixabay")
-const PHOTO_PROVIDER = "pexels";
-const PHOTO_API_KEY  = "";   // <-- paste your key here
-// Used when there is no key, or no photo is found for a city
+// ===== CITY PHOTOS: Wikimedia Commons API (open, free, no API key) ========
+// Used when no photo is found for a city (or you are offline)
 const FALLBACK = {
   url: "https://commons.wikimedia.org/wiki/Special:FilePath/MarineDrive_WeekendNight.jpg?width=1600",
   credit: 'Photo: Marine Drive, Mumbai by Indoresearch, <a href="https://commons.wikimedia.org/wiki/File:MarineDrive_WeekendNight.jpg" target="_blank" rel="noopener">Wikimedia Commons</a> (CC BY-SA 3.0)'
 };
 // ==========================================================================
 
+const strip = h => (h || "").replace(/<[^>]*>/g, "").trim();
+
 async function fetchPhoto(city){
-  const cacheKey = "photo:" + PHOTO_PROVIDER + ":" + city.toLowerCase();
+  const cacheKey = "photo:commons:" + city.toLowerCase();
   try{ const c = JSON.parse(localStorage.getItem(cacheKey)); if(c) return c; }catch(e){}
-  if(!PHOTO_API_KEY) return FALLBACK;
-  const q = encodeURIComponent(city + " city skyline");
+
   let photo = null;
-  if(PHOTO_PROVIDER === "pexels"){
-    const r = await fetch("https://api.pexels.com/v1/search?orientation=landscape&per_page=5&query=" + q,
-      {headers:{Authorization:PHOTO_API_KEY}});
-    const d = await r.json(), p = d.photos && d.photos[0];
-    if(p) photo = {url:p.src.large2x,
-      credit:`Photo by <a href="${p.photographer_url}" target="_blank" rel="noopener">${p.photographer}</a> on <a href="${p.url}" target="_blank" rel="noopener">Pexels</a>`};
-  }else{
-    const r = await fetch("https://pixabay.com/api/?image_type=photo&orientation=horizontal&per_page=5&q=" + q + "&key=" + PHOTO_API_KEY);
-    const d = await r.json(), p = d.hits && d.hits[0];
-    if(p) photo = {url:p.largeImageURL,
-      credit:`Photo by ${p.user} on <a href="${p.pageURL}" target="_blank" rel="noopener">Pixabay</a>`};
+  // 1) Search Commons for landscape JPEGs of the city skyline
+  const api = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*" +
+    "&generator=search&gsrnamespace=6&gsrlimit=15&gsrsearch=" + encodeURIComponent(city + " skyline filetype:bitmap") +
+    "&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1600";
+  const d = await getJSON(api);
+  const pages = Object.values((d.query && d.query.pages) || {}).sort((x,y) => x.index - y.index);
+  for(const pg of pages){
+    const i = pg.imageinfo && pg.imageinfo[0];
+    if(i && i.mime === "image/jpeg" && i.width >= 1200 && i.width > i.height * 1.2){
+      const m = i.extmetadata || {};
+      const who = strip(m.Artist && m.Artist.value) || "Unknown author";
+      const lic = strip(m.LicenseShortName && m.LicenseShortName.value);
+      photo = {url: i.thumburl || i.url,
+        credit: `Photo: ${who}, <a href="${i.descriptionurl}" target="_blank" rel="noopener">Wikimedia Commons</a>${lic ? " (" + lic + ")" : ""}`};
+      break;
+    }
+  }
+  // 2) Otherwise use the city's main Wikipedia image
+  if(!photo){
+    try{
+      const w = await getJSON("https://en.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(city));
+      const src = w.originalimage && w.originalimage.width >= 1000 ? w.originalimage.source : null;
+      if(src) photo = {url: src,
+        credit: `Photo via <a href="${w.content_urls.desktop.page}" target="_blank" rel="noopener">Wikipedia</a>`};
+    }catch(e){}
   }
   if(!photo) return FALLBACK;
   try{ localStorage.setItem(cacheKey, JSON.stringify(photo)); }catch(e){}
