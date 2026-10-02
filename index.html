@@ -12,9 +12,16 @@
   *{box-sizing:border-box;margin:0}
   body{
     min-height:100vh; font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;
-    color:var(--ink); background:linear-gradient(160deg,var(--sky1),var(--sky2));
-    transition:background .8s; padding:24px 16px 48px;
+    color:var(--ink); padding:24px 16px 48px; position:relative;
+    background:#1b2433 url("https://commons.wikimedia.org/wiki/Special:FilePath/MarineDrive_WeekendNight.jpg?width=1600") center/cover fixed no-repeat;
   }
+  /* weather-coloured tint over the photo so text stays readable */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-1;opacity:.62;
+    background:linear-gradient(160deg,var(--sky1),var(--sky2));transition:background .8s;
+  }
+  .credit{text-align:center;font-size:.72rem;opacity:.7;margin-top:24px}
+  .credit a{color:inherit}
   main{max-width:520px;margin:0 auto}
   form{display:flex;gap:8px;margin-bottom:8px}
   input{
@@ -83,6 +90,9 @@
     <h2>7-day forecast</h2>
     <div class="days" id="days"></div>
   </section>
+  <p class="credit">Photo: Marine Drive, Mumbai by Indoresearch,
+    <a href="https://commons.wikimedia.org/wiki/File:MarineDrive_WeekendNight.jpg" target="_blank" rel="noopener">Wikimedia Commons</a>
+    (CC BY-SA 3.0)</p>
 </main>
 
 <script>
