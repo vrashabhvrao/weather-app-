@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather</title>
+<style>
+  :root{
+    --sky1:#2b5876; --sky2:#4e4376; --ink:#fff; --glass:rgba(255,255,255,.14);
+    --line:rgba(255,255,255,.22);
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    min-height:100vh; font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;
+    color:var(--ink); background:linear-gradient(160deg,var(--sky1),var(--sky2));
+    transition:background .8s; padding:24px 16px 48px;
+  }
+  main{max-width:520px;margin:0 auto}
+  form{display:flex;gap:8px;margin-bottom:8px}
+  input{
+    flex:1;padding:12px 16px;border-radius:999px;border:1px solid var(--line);
+    background:var(--glass);color:var(--ink);font-size:1rem;outline:none;
+  }
+  input::placeholder{color:rgba(255,255,255,.65)}
+  input:focus-visible,button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  button{
+    padding:12px 18px;border-radius:999px;border:1px solid var(--line);
+    background:var(--glass);color:var(--ink);font-size:1rem;cursor:pointer;
+  }
+  button:hover{background:rgba(255,255,255,.24)}
+  #msg{min-height:1.4em;font-size:.9rem;opacity:.85;margin:0 8px 16px}
+  .now{text-align:center;padding:12px 0 24px}
+  .icon{font-size:5rem;line-height:1}
+  .temp{font-size:5.5rem;font-weight:200;line-height:1.1}
+  .city{font-size:1.4rem}
+  .desc{opacity:.85;margin-top:4px}
+  .stats{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;
+  }
+  .stat{background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:12px;text-align:center}
+  .stat b{display:block;font-size:1.1rem;font-weight:600}
+  .stat span{font-size:.8rem;opacity:.8}
+  h2{font-size:1rem;font-weight:600;margin:0 4px 8px}
+  .hours{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:20px}
+  .hour{
+    flex:0 0 64px;text-align:center;background:var(--glass);
+    border:1px solid var(--line);border-radius:14px;padding:10px 4px;
+  }
+  .hour div:first-child{font-size:.8rem;opacity:.8}
+  .hour div:nth-child(2){font-size:1.5rem;margin:4px 0}
+  .days{background:var(--glass);border:1px solid var(--line);border-radius:14px}
+  .day{display:grid;grid-template-columns:70px 36px 1fr auto;gap:8px;align-items:center;padding:10px 14px}
+  .day+.day{border-top:1px solid var(--line)}
+  .day .lo{opacity:.7}
+  .rain{font-size:.8rem;opacity:.8}
+  [hidden]{display:none}
+  @media (prefers-reduced-motion:reduce){body{transition:none}}
+</style>
+</head>
+<body>
+<main>
+  <form id="f">
+    <input id="q" placeholder="Search city (e.g. Mangaluru)" aria-label="City" autocomplete="off">
+    <button type="submit">Search</button>
+    <button type="button" id="loc" title="Use my location" aria-label="Use my location">📍</button>
+  </form>
+  <p id="msg" role="status"></p>
+
+  <section id="out" hidden>
+    <div class="now">
+      <div class="city" id="city"></div>
+      <div class="icon" id="icon"></div>
+      <div class="temp" id="temp"></div>
+      <div class="desc" id="desc"></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="feels"></b><span>Feels like</span></div>
+      <div class="stat"><b id="hum"></b><span>Humidity</span></div>
+      <div class="stat"><b id="wind"></b><span>Wind</span></div>
+    </div>
+    <h2>Next 24 hours</h2>
+    <div class="hours" id="hours"></div>
+    <h2>7-day forecast</h2>
+    <div class="days" id="days"></div>
+  </section>
+</main>
+
+<script>
+// Weather codes from Open-Meteo: [emoji, description, sky gradient]
+const WX = {
+  0:["☀️","Clear sky",["#2193b0","#6dd5ed"]],
+  1:["🌤️","Mostly clear",["#2193b0","#6dd5ed"]],
+  2:["⛅","Partly cloudy",["#556270","#8aa4b8"]],
+  3:["☁️","Overcast",["#485563","#29323c"]],
+  45:["🌫️","Fog",["#606c88","#3f4c6b"]],
+  48:["🌫️","Rime fog",["#606c88","#3f4c6b"]],
+  51:["🌦️","Light drizzle",["#4b6cb7","#182848"]],
+  53:["🌦️","Drizzle",["#4b6cb7","#182848"]],
+  55:["🌧️","Heavy drizzle",["#4b6cb7","#182848"]],
+  61:["🌧️","Light rain",["#373b44","#4286f4"]],
+  63:["🌧️","Rain",["#373b44","#4286f4"]],
+  65:["🌧️","Heavy rain",["#232526","#414345"]],
+  71:["🌨️","Light snow",["#83a4d4","#b6fbff"]],
+  73:["🌨️","Snow",["#83a4d4","#b6fbff"]],
+  75:["❄️","Heavy snow",["#83a4d4","#b6fbff"]],
+  80:["🌦️","Rain showers",["#4b6cb7","#182848"]],
+  81:["🌧️","Rain showers",["#373b44","#4286f4"]],
+  82:["⛈️","Violent showers",["#232526","#414345"]],
+  95:["⛈️","Thunderstorm",["#1f1c2c","#928dab"]],
+  96:["⛈️","Thunderstorm, hail",["#1f1c2c","#928dab"]],
+  99:["⛈️","Thunderstorm, hail",["#1f1c2c","#928dab"]]
+};
+const wx = c => WX[c] || WX[Object.keys(WX).reverse().find(k => k <= c)] || WX[0];
+const $ = id => document.getElementById(id);
+const msg = t => $("msg").textContent = t;
+
+async function getJSON(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error("Network error " + r.status);
+  return r.json();
+}
+
+async function searchCity(name){
+  const g = await getJSON(
+    "https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + encodeURIComponent(name));
+  if(!g.results) throw new Error("City not found. Check the spelling and try again.");
+  const p = g.results[0];
+  return {lat:p.latitude, lon:p.longitude, label:[p.name,p.admin1,p.country].filter(Boolean).join(", ")};
+}
+
+async function load(lat, lon, label){
+  msg("Loading…");
+  try{
+    const url = "https://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lon+
+      "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day"+
+      "&hourly=temperature_2m,weather_code"+
+      "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"+
+      "&timezone=auto&forecast_days=7";
+    const d = await getJSON(url);
+    render(d, label);
+    localStorage.setItem("lastPlace", JSON.stringify({lat,lon,label}));
+    msg("");
+  }catch(e){ msg(e.message || "Could not load weather."); }
+}
+
+function render(d, label){
+  const c = d.current, [icon, desc, sky] = wx(c.weather_code);
+  document.documentElement.style.setProperty("--sky1", sky[0]);
+  document.documentElement.style.setProperty("--sky2", sky[1]);
+  $("city").textContent = label;
+  $("icon").textContent = (!c.is_day && c.weather_code < 2) ? "🌙" : icon;
+  $("temp").textContent = Math.round(c.temperature_2m) + "°";
+  $("desc").textContent = desc;
+  $("feels").textContent = Math.round(c.apparent_temperature) + "°";
+  $("hum").textContent = c.relative_humidity_2m + "%";
+  $("wind").textContent = Math.round(c.wind_speed_10m) + " km/h";
+
+  // Hourly: find the current hour and show the next 24
+  const start = Math.max(0, d.hourly.time.findIndex(t => t >= c.time));
+  $("hours").innerHTML = d.hourly.time.slice(start, start+24).map((t,i) => {
+    const h = new Date(t).toLocaleTimeString([], {hour:"numeric"});
+    return `<div class="hour"><div>${i?h:"Now"}</div><div>${wx(d.hourly.weather_code[start+i])[0]}</div>`+
+           `<div>${Math.round(d.hourly.temperature_2m[start+i])}°</div></div>`;
+  }).join("");
+
+  $("days").innerHTML = d.daily.time.map((t,i) => {
+    const name = i ? new Date(t+"T00:00").toLocaleDateString([], {weekday:"short"}) : "Today";
+    return `<div class="day"><span>${name}</span><span>${wx(d.daily.weather_code[i])[0]}</span>`+
+      `<span class="rain">${d.daily.precipitation_probability_max[i] ?? 0}% rain</span>`+
+      `<span>${Math.round(d.daily.temperature_2m_max[i])}° <span class="lo">${Math.round(d.daily.temperature_2m_min[i])}°</span></span></div>`;
+  }).join("");
+  $("out").hidden = false;
+}
+
+$("f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const q = $("q").value.trim();
+  if(!q) return msg("Type a city name first.");
+  try{ msg("Searching…"); const p = await searchCity(q); load(p.lat, p.lon, p.label); }
+  catch(err){ msg(err.message); }
+});
+
+$("loc").addEventListener("click", () => {
+  if(!navigator.geolocation) return msg("Your browser doesn't support location.");
+  msg("Finding you…");
+  navigator.geolocation.getCurrentPosition(
+    p => load(p.coords.latitude, p.coords.longitude, "Your location"),
+    () => msg("Location blocked. Allow it in your browser, or search a city.")
+  );
+});
+
+// Restore last place, or default to Mangaluru
+let last = null;
+try{ last = JSON.parse(localStorage.getItem("lastPlace")); }catch(e){}
+last ? load(last.lat, last.lon, last.label) : load(12.9141, 74.856, "Mangaluru, Karnataka, India");
+</script>
+</body>
+</html>
